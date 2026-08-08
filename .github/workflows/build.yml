@@ -1,15 +1,15 @@
 name: build
 
-# Builds the sideous VST3/LV2/CLAP plugin for Linux and Windows.
+# Builds the sideous VST3/LV2/CLAP plugin for Linux, Windows, and macOS.
 #
 # Uses distrho/dpf-cmake-action, DPF's own maintained build action (the same
 # one the DPF project uses for its own CI) instead of hand-rolling a mingw
 # cross-compile + Cairo toolchain here. It handles dependency setup, the
 # CMake configure/build, and uploading build artifacts.
 #
-# Both jobs use pawpaw: true so DISTRHO's PawPaw toolchain builds a matching
+# All jobs use pawpaw: true so DISTRHO's PawPaw toolchain builds a matching
 # Cairo (and its dependencies) into its own prefix, independent of the
-# system's apt packages:
+# system's own package manager:
 # - windows job: apt has no Windows Cairo package at all, so this is the
 #   only way to get it when cross-compiling with mingw-w64.
 # - linux job: apt DOES have a native Cairo package, and installing it
@@ -20,6 +20,11 @@ name: build
 #   libcairo2-dev -> even pkg-config itself down with it. Confirmed by
 #   reproducing the exact apt transaction in a clean ubuntu:22.04 container.
 #   PawPaw sidesteps this entirely since it never touches system apt Cairo.
+# - macos job: builds a universal (arm64 + x86_64) binary; the action's own
+#   macOS setup step uninstalls Homebrew's Cairo when pawpaw is enabled to
+#   avoid the two colliding, so pawpaw is the path of least resistance here
+#   too. Runs on a native macOS runner (no cross-compiling from Linux, unlike
+#   Windows).
 #
 # First run per cache key is slow (builds Cairo from source); later runs
 # reuse the action's own dependency cache.
@@ -62,5 +67,18 @@ jobs:
       - uses: distrho/dpf-cmake-action@v1
         with:
           target: win64
+          dpf_path: dpf
+          pawpaw: true
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: distrho/dpf-cmake-action@v1
+        with:
+          target: macos-universal
           dpf_path: dpf
           pawpaw: true
