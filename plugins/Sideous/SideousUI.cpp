@@ -51,26 +51,31 @@ protected:
         repaint();
     }
 
-    // called periodically by the host; used only to expire the automation
-    // value callouts above (repaint() itself is otherwise purely event-driven)
+    // called periodically by the host (often at a high, host-defined rate);
+    // used only to expire the automation value callouts above. The callout
+    // is a static show/hide, not an animation, so there's nothing to redraw
+    // while one is simply still counting down - only repaint when the active
+    // count actually drops, i.e. some callout just expired and needs erasing.
+    // (Repainting unconditionally here used to mean up to ~1.2s of back-to-back
+    // repaints, each forcing pugl to recreate its Cairo Xlib surface, after
+    // every single knob touch - way more window churn than this feature
+    // needs, and worth avoiding on its own even before touching a crash.)
     void uiIdle() override
     {
         if (!fHasActiveValueDisplay)
             return;
 
-        repaint();
-
         const auto now = std::chrono::steady_clock::now();
-        bool anyActive = false;
+        uint32_t activeCount = 0;
         for (uint32_t i = 0; i < kParamCount; ++i)
-        {
             if (now < fValueDisplayUntil[i])
-            {
-                anyActive = true;
-                break;
-            }
-        }
-        fHasActiveValueDisplay = anyActive;
+                ++activeCount;
+
+        if (activeCount < fLastActiveValueDisplayCount)
+            repaint();
+
+        fLastActiveValueDisplayCount = activeCount;
+        fHasActiveValueDisplay = activeCount > 0;
     }
 
     void onCairoDisplay(const CairoGraphicsContext& context) override
@@ -333,6 +338,7 @@ private:
 
     std::chrono::steady_clock::time_point fValueDisplayUntil[kParamCount]{};
     bool fHasActiveValueDisplay = false;
+    uint32_t fLastActiveValueDisplayCount = 0;
 
     int fDragKnob = -1;
     double fDragStartY = 0.0;
