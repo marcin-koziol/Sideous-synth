@@ -20,6 +20,10 @@ using namespace sideous;
 
 static constexpr const uint32_t kNumVoices = 16;
 static constexpr const uint32_t kMaxHeldNotes = 16;
+// grace window after the first note of a new arp phrase before step 0 actually
+// triggers, so a chord played "simultaneously" (still separate MIDI events a
+// few ms apart) is fully gathered before the sequence starts
+static constexpr const float kArpChordGraceSeconds = 0.03f;
 
 enum class ArpPattern { Up = 0, Down, UpDown, Random };
 
@@ -693,7 +697,18 @@ private:
             return;
 
         if (fHeldCount == 0)
-            fArpForceRestart = true; // start the arp immediately, don't wait for the next step
+        {
+            // Start the arp shortly after the first note of a new phrase,
+            // instead of literally on the same sample it arrives: a chord
+            // played "simultaneously" still lands as separate MIDI events a
+            // few ms apart, and triggering step 0 immediately would lock in
+            // whichever note happened to arrive first (with totalSteps==1)
+            // before the rest of the chord is in fHeldNotes, scrambling the
+            // Up/Down/UpDown sequence for the whole held phrase afterwards.
+            // A short grace window lets the rest of the chord register first.
+            fArpForceRestart = true;
+            fArpForceRestartDelay = kArpChordGraceSeconds;
+        }
 
         // keep the list sorted by pitch (ascending), not MIDI arrival order,
         // so Up/Down/etc. reflect the actual chord shape regardless of which
@@ -741,11 +756,16 @@ private:
         {
             stopArpNote();
             fArpPhase = 0.0f;
+            fArpForceRestart = false;
             return;
         }
 
         if (fArpForceRestart)
         {
+            fArpForceRestartDelay -= dt;
+            if (fArpForceRestartDelay > 0.0f)
+                return; // still gathering a possibly-simultaneous chord
+
             fArpForceRestart = false;
             fArpPhase = stepDuration;
             fArpStepCounter = 0;
@@ -850,6 +870,7 @@ private:
     int fArpCurrentNote = -1;
     bool fArpNoteOn = false;
     bool fArpForceRestart = false;
+    float fArpForceRestartDelay = 0.0f;
 
     bool fMonoMode = false;
     sideous::Voice fMonoVoice;

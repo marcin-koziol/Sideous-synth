@@ -7,12 +7,22 @@ name: build
 # cross-compile + Cairo toolchain here. It handles dependency setup, the
 # CMake configure/build, and uploading build artifacts.
 #
-# - linux job: builds natively on Ubuntu, installs Cairo via apt (fast).
-# - windows job: cross-compiles from Ubuntu using mingw-w64, with
-#   pawpaw: true so DISTRHO's PawPaw toolchain builds a matching Cairo (and
-#   its dependencies) for the Windows target - apt has no Windows Cairo
-#   package, so this is the reliable way to get it. First run per cache key
-#   is slow (builds Cairo from source); later runs reuse the action's cache.
+# Both jobs use pawpaw: true so DISTRHO's PawPaw toolchain builds a matching
+# Cairo (and its dependencies) into its own prefix, independent of the
+# system's apt packages:
+# - windows job: apt has no Windows Cairo package at all, so this is the
+#   only way to get it when cross-compiling with mingw-w64.
+# - linux job: apt DOES have a native Cairo package, and installing it
+#   directly used to be enough - but the action's own internal cleanup step
+#   ("Fix GitHub's mess (ubuntu-22.04)", which purges libselinux1-dev to
+#   save disk space) runs *after* our install step and cascades through
+#   apt's dependency resolution, taking libpcre2-dev -> libglib2.0-dev ->
+#   libcairo2-dev -> even pkg-config itself down with it. Confirmed by
+#   reproducing the exact apt transaction in a clean ubuntu:22.04 container.
+#   PawPaw sidesteps this entirely since it never touches system apt Cairo.
+#
+# First run per cache key is slow (builds Cairo from source); later runs
+# reuse the action's own dependency cache.
 #
 # Artifacts (VST3 + LV2 + CLAP bundles) are uploaded on every push/PR run.
 # Pushing a version tag (e.g. "v1.0.0") additionally creates a GitHub
@@ -36,15 +46,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Cairo (native build, apt has it - no need for pawpaw here)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -yqq libcairo2-dev
-
       - uses: distrho/dpf-cmake-action@v1
         with:
           target: linux-x86_64
           dpf_path: dpf
+          pawpaw: true
 
   windows:
     runs-on: ubuntu-22.04
