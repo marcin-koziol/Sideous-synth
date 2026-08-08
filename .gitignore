@@ -1,0 +1,13 @@
+# build output
+build/
+build-*/
+
+# editor/IDE cruft
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS cruft
+.DS_Store
+Thumbs.db

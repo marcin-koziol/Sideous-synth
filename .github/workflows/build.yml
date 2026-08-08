@@ -1,0 +1,60 @@
+name: build
+
+# Builds the sideous VST3/LV2/CLAP plugin for Linux and Windows.
+#
+# Uses distrho/dpf-cmake-action, DPF's own maintained build action (the same
+# one the DPF project uses for its own CI) instead of hand-rolling a mingw
+# cross-compile + Cairo toolchain here. It handles dependency setup, the
+# CMake configure/build, and uploading build artifacts.
+#
+# - linux job: builds natively on Ubuntu, installs Cairo via apt (fast).
+# - windows job: cross-compiles from Ubuntu using mingw-w64, with
+#   pawpaw: true so DISTRHO's PawPaw toolchain builds a matching Cairo (and
+#   its dependencies) for the Windows target - apt has no Windows Cairo
+#   package, so this is the reliable way to get it. First run per cache key
+#   is slow (builds Cairo from source); later runs reuse the action's cache.
+#
+# Artifacts (VST3 + LV2 + CLAP bundles) are uploaded on every push/PR run.
+# Pushing a version tag (e.g. "v1.0.0") additionally creates a GitHub
+# Release with the built packages attached.
+
+on:
+  push:
+    branches: ['*']
+    tags: ['v*']
+  pull_request:
+    branches: ['*']
+
+env:
+  NAME: sideous
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Cairo (native build, apt has it - no need for pawpaw here)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -yqq libcairo2-dev
+
+      - uses: distrho/dpf-cmake-action@v1
+        with:
+          target: linux-x86_64
+          dpf_path: dpf
+
+  windows:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: distrho/dpf-cmake-action@v1
+        with:
+          target: win64
+          dpf_path: dpf
+          pawpaw: true
