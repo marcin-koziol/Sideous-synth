@@ -42,6 +42,8 @@ static constexpr Color kYellow  { 1.00, 0.85, 0.30 };
 static constexpr Color kGreen   { 0.45, 0.95, 0.55 };
 static constexpr Color kOrange  { 1.00, 0.55, 0.20 };
 static constexpr Color kPurple  { 0.65, 0.45, 1.00 };
+static constexpr Color kRust    { 0.776, 0.341, 0.180 }; // preset bar: delete button
+static constexpr Color kAmber   { 0.937, 0.600, 0.220 }; // preset bar: unsaved-changes marker
 
 inline void setColor(cairo_t* cr, Color c, double a = 1.0) noexcept
 {
@@ -87,6 +89,18 @@ struct Dropdown
 
 struct PanelBox { float x, y, w, h; const char* title; Color accent; };
 
+// preset bar: prev/next/save/delete buttons plus a name field. Deliberately
+// plain rectangles rather than reusing the Selector/Knob widgets - it isn't
+// a parameter, it's file-system CRUD.
+struct Button { float x, y, w, h; const char* label; Color accent; };
+
+struct PresetBarLayout
+{
+    Button prev, next, save, del;
+    float nameX, nameY, nameW, nameH;
+    Color accent;
+};
+
 // read-only ADSR shape preview - no interaction, just visualizes the
 // attack/decay/sustain/release/curve parameters of one envelope
 struct EnvelopeGraph
@@ -104,6 +118,7 @@ struct Layout
     std::vector<Selector> selectors;
     std::vector<Dropdown> dropdowns;
     std::vector<EnvelopeGraph> envelopeGraphs;
+    PresetBarLayout presetBar;
 };
 
 // -----------------------------------------------------------------------------------------------------------
@@ -156,12 +171,37 @@ inline Layout buildLayout(float width, float height)
     const float colW = (width - margin * 2.0f - gap) / 2.0f;
     const float colBx = margin + colW + gap;
 
+    // preset bar: full width, right below the header; everything else starts below it
+    const float presetBarY = 64.0f, presetBarH = 46.0f;
+
     // row1H must clear: top selector row (34+30) + gap to knob row (56) +
     // knob radius (26) + label baseline offset (14) + bottom padding.
-    const float row1Y = 64.0f, row1H = 176.0f;
+    const float row1Y = presetBarY + presetBarH + gap, row1H = 176.0f;
     const float row2Y = row1Y + row1H + gap, row2H = 210.0f;
     const float row3Y = row2Y + row2H + gap, row3H = 210.0f;
     const float barY = row3Y + row3H + gap, barH = height - barY - margin;
+
+    // --- preset bar --- (all positions absolute, left-to-right: prev/next,
+    // then the name field filling the middle, then save/delete flush right)
+    {
+        L.presetBar.accent = kCyan;
+        const float y = presetBarY, h = presetBarH;
+        const float barLeftX = margin;
+        const float barRightX = width - margin;
+
+        L.presetBar.prev = { barLeftX, y, 40.0f, h, "<", kCyan };
+        L.presetBar.next = { barLeftX + 40.0f + 8.0f, y, 40.0f, h, ">", kCyan };
+
+        const float delX = barRightX - 100.0f;
+        const float saveX = delX - 8.0f - 90.0f;
+        L.presetBar.save = { saveX, y, 90.0f, h, "SAVE", kCyan };
+        L.presetBar.del  = { delX, y, 100.0f, h, "DELETE", kRust };
+
+        L.presetBar.nameX = L.presetBar.next.x + 40.0f + 14.0f;
+        L.presetBar.nameY = y;
+        L.presetBar.nameW = saveX - 14.0f - L.presetBar.nameX;
+        L.presetBar.nameH = h;
+    }
 
     L.panels.push_back({ margin, row1Y, colW, row1H, "OSCILLATOR", kCyan });
     L.panels.push_back({ colBx,  row1Y, colW, row1H, "FILTER",     kMagenta });
@@ -530,6 +570,14 @@ struct PaintState
     const bool* autoShowValue = nullptr; // [kParamCount], true = briefly show this
                                           // knob's value even without dragging
                                           // (e.g. just changed via automation)
+
+    const char* presetName = "INIT";
+    bool presetIsUnsaved = false; // true when a param has changed since the
+                                   // preset shown was last loaded/saved
+    bool presetEditingName = false;
+    const char* presetEditBuffer = "";
+    int hoverPresetButton = -1;   // 0=prev,1=next,2=save,3=delete, or -1
+    bool presetDeleteEnabled = false; // false while on INIT - nothing to delete
 };
 
 inline void paintKnob(cairo_t* cr, const Knob& k, float value, bool hovered, bool dragging, bool autoShow)
@@ -763,6 +811,55 @@ inline void paintDropdownOpenList(cairo_t* cr, const Dropdown& dd, float value, 
     cairo_stroke(cr);
 }
 
+inline void paintButton(cairo_t* cr, const Button& b, bool hovered, bool enabled)
+{
+    roundedRect(cr, b.x, b.y, b.w, b.h, 4.0);
+    setColor(cr, kBtnBg, enabled ? (hovered ? 1.0 : 0.85) : 0.4);
+    cairo_fill_preserve(cr);
+    setColor(cr, b.accent, enabled ? 1.0 : 0.35);
+    cairo_set_line_width(cr, 1.5);
+    cairo_stroke(cr);
+
+    setFont(cr, 11.5);
+    setColor(cr, b.accent, enabled ? 1.0 : 0.35);
+    centeredText(cr, b.label, b.x + b.w / 2.0, b.y + b.h / 2.0);
+}
+
+inline void paintPresetBar(cairo_t* cr, const PresetBarLayout& pb, const PaintState& state)
+{
+    paintButton(cr, pb.prev, state.hoverPresetButton == 0, true);
+    paintButton(cr, pb.next, state.hoverPresetButton == 1, true);
+    paintButton(cr, pb.save, state.hoverPresetButton == 2, true);
+    paintButton(cr, pb.del,  state.hoverPresetButton == 3, state.presetDeleteEnabled);
+
+    roundedRect(cr, pb.nameX, pb.nameY, pb.nameW, pb.nameH, 4.0);
+    setColor(cr, state.presetEditingName ? kKnobBody : kBtnBg, 0.9);
+    cairo_fill_preserve(cr);
+    setColor(cr, state.presetEditingName ? pb.accent : kPanelEdge, state.presetEditingName ? 1.0 : 0.8);
+    cairo_set_line_width(cr, state.presetEditingName ? 2.0 : 1.5);
+    cairo_stroke(cr);
+
+    setFont(cr, 9.0, false);
+    setColor(cr, kTextDim);
+    drawText(cr, "PRESET", pb.nameX + 12.0, pb.nameY + 14.0);
+
+    setFont(cr, 13.0);
+    if (state.presetEditingName)
+    {
+        char buf[40];
+        std::snprintf(buf, sizeof(buf), "%s_", state.presetEditBuffer);
+        setColor(cr, kTextMain);
+        drawText(cr, buf, pb.nameX + 12.0, pb.nameY + pb.nameH - 12.0);
+    }
+    else
+    {
+        setColor(cr, state.presetIsUnsaved ? kAmber : kTextMain);
+        char buf[40];
+        std::snprintf(buf, sizeof(buf), "%s%s", state.presetName, state.presetIsUnsaved ? " *" : "");
+        drawText(cr, buf, pb.nameX + 12.0, pb.nameY + pb.nameH - 12.0);
+    }
+}
+
 inline void paint(cairo_t* cr, const Layout& L, const PaintState& state)
 {
     // background
@@ -788,6 +885,8 @@ inline void paint(cairo_t* cr, const Layout& L, const PaintState& state)
     cairo_move_to(cr, 16.0, 54.0);
     cairo_line_to(cr, L.width - 16.0, 54.0);
     cairo_stroke(cr);
+
+    paintPresetBar(cr, L.presetBar, state);
 
     // panels
     for (const PanelBox& p : L.panels)

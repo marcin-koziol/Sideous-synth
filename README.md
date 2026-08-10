@@ -34,6 +34,24 @@ whatever effects you already use.
   depth)
 - Knobs show live values while being automated, not just while dragging
 
+## Presets
+
+A small file-based preset browser sits right under the title bar — Prev/Next
+to cycle, click the name to rename, Save, Delete. Presets are plain text
+files (one per preset, human-readable/editable) stored outside the plugin
+bundle, so they're shared across every format (VST3/LV2/CLAP/standalone)
+without relying on any host's own preset mechanism:
+
+- Linux: `~/.local/share/sideous/presets` (or `$XDG_DATA_HOME`)
+- macOS: `~/Library/Application Support/sideous/presets`
+- Windows: `%APPDATA%\sideous\presets`
+
+11 factory presets (Classic Saw Lead, Sub Bass Stab, Arp Sequence, Wobble
+Pad, Mono Glide Lead, Ladder Growl, and others covering the rest of the
+feature set) are seeded into that directory automatically the first time the
+UI runs with an empty preset library, then behave exactly like any preset
+you save yourself.
+
 ## Building
 
 ```sh
@@ -50,5 +68,5 @@ Built plugins land in `build/bin/` — `sideous.vst3`, `sideous.lv2`,
 `sideous.clap`, and a JACK/native-audio standalone (`sideous`).
 
 CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds
-Linux and Windows packages on every push and attaches them to GitHub Releases
-for tagged versions.
+Linux, Windows, and macOS (universal) packages on every push and attaches
+them to GitHub Releases for tagged versions.
