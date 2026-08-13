@@ -313,12 +313,15 @@ inline Layout buildLayout(float width, float height)
         wave.options = { { 0.0f, "SINE" }, { 1.0f, "SAW" }, { 2.0f, "SQR" } };
         L.selectors.push_back(wave);
 
-        Selector dest;
+        // a dropdown rather than a Selector button row - a 4th destination
+        // (pulse width) would leave too little room per button in this
+        // half-width panel column
+        Dropdown dest;
         dest.param = kParamLfoDestination;
         dest.accent = p.accent;
         dest.x = wave.x + wave.w + 10.0f; dest.y = wave.y; dest.w = (p.x + p.w - 14.0f) - dest.x; dest.h = 28.0f;
-        dest.options = { { 0.0f, "PITCH" }, { 1.0f, "CUTOFF" }, { 2.0f, "AMP" } };
-        L.selectors.push_back(dest);
+        dest.options = { { 0.0f, "PITCH" }, { 1.0f, "CUTOFF" }, { 2.0f, "AMP" }, { 3.0f, "PW" } };
+        L.dropdowns.push_back(dest);
 
         Dropdown sync;
         sync.param = kParamLfoSync;

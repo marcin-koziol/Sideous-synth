@@ -173,12 +173,13 @@ protected:
         case kParamLfoDestination:
             parameter.hints |= kParameterIsInteger;
             {
-                static ParameterEnumerationValue values[3] = {
+                static ParameterEnumerationValue values[4] = {
                     { 0.0f, "Pitch" },
                     { 1.0f, "Cutoff" },
                     { 2.0f, "Amplitude" },
+                    { 3.0f, "Pulse Width" },
                 };
-                parameter.enumValues.count = 3;
+                parameter.enumValues.count = 4;
                 parameter.enumValues.restrictedMode = true;
                 parameter.enumValues.values = values;
                 parameter.enumValues.deleteLater = false;

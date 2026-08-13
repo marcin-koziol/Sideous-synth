@@ -1,7 +1,7 @@
 /*
  * Sideous - a single synth voice: oscillator (+ suboscillator) -> amp ADSR,
  * in parallel with a filter whose cutoff is modulated by its own ADSR and an
- * optional LFO (which can also target pitch or amplitude).
+ * optional LFO (which can also target pitch, amplitude, or pulse width).
  */
 
 #pragma once
@@ -161,9 +161,8 @@ public:
     void applyParams(const VoiceParams& p) noexcept
     {
         fOsc.setWaveform(p.waveform);
-        fOsc.setPulseWidth(p.pulseWidth);
         fSubOsc.setWaveform(p.waveform);
-        fSubOsc.setPulseWidth(p.pulseWidth);
+        fBasePulseWidth = p.pulseWidth; // combined with the LFO per-sample in process()
         fSubOctave = p.subOctave;
         fSubLevel = p.subLevel;
 
@@ -247,6 +246,15 @@ public:
         fOsc.setFrequency(fCurrentFreq * pitchRatio);
         fSubOsc.setFrequency(fCurrentFreq * std::exp2(fSubOctave) * pitchRatio);
 
+        // pulse width is set every sample (rather than once in applyParams())
+        // so the LFO can modulate it at audio rate, same as cutoff below;
+        // Oscillator::setPulseWidth() clamps to 0.01..0.99 for us
+        float pulseWidth = fBasePulseWidth;
+        if (fLfoDestination == LfoDestination::PulseWidth)
+            pulseWidth += fLfoAmount * lfo * 0.48f;
+        fOsc.setPulseWidth(pulseWidth);
+        fSubOsc.setPulseWidth(pulseWidth);
+
         const float osc = fOsc.process() + fSubOsc.process() * fSubLevel;
         const float ampLevel = fAmpEnv.process();
         const float filterEnvLevel = fFilterEnv.process();
@@ -325,6 +333,7 @@ private:
     FilterMode fFilterMode = FilterMode::LP12;
     float fBaseCutoff = 2000.0f;
     float fEnvAmount = 0.0f;
+    float fBasePulseWidth = 0.5f;
     float fSubOctave = -1.0f;
     float fSubLevel = 0.0f;
     float fVelocitySensitivity = 1.0f;

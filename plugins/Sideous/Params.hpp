@@ -91,7 +91,7 @@ inline const ParamInfo& getParamInfo(uint32_t index) noexcept
         { "LFO Waveform",     "lfo_waveform",        "",   0.0f,     2.0f,     0.0f,   ParamShape::Linear },
         { "LFO Rate",         "lfo_rate_hz",         "Hz", 0.02f,   20.0f,     2.0f,   ParamShape::Logarithmic },
         { "LFO Sync",         "lfo_sync",            "",   0.0f,    14.0f,     0.0f,   ParamShape::Linear },
-        { "LFO Destination",  "lfo_destination",     "",   0.0f,     2.0f,     0.0f,   ParamShape::Linear },
+        { "LFO Destination",  "lfo_destination",     "",   0.0f,     3.0f,     0.0f,   ParamShape::Linear },
         { "LFO Amount",       "lfo_amount",          "",   0.0f,     1.0f,     0.0f,   ParamShape::Linear },
         { "Arp Enabled",      "arp_enabled",         "",   0.0f,     1.0f,     0.0f,   ParamShape::Linear },
         { "Arp Pattern",      "arp_pattern",         "",   0.0f,     3.0f,     0.0f,   ParamShape::Linear },

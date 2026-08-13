@@ -1,7 +1,7 @@
 /*
  * Sideous - a simple free-running LFO (sine/saw/square) for pitch, filter
- * cutoff, or amplitude modulation. Not band-limited: LFO rates are always
- * far below audio range so aliasing isn't a concern.
+ * cutoff, amplitude, or pulse-width modulation. Not band-limited: LFO rates
+ * are always far below audio range so aliasing isn't a concern.
  */
 
 #pragma once
@@ -11,7 +11,9 @@
 namespace sideous {
 
 enum class LfoWaveform { Sine = 0, Saw, Square };
-enum class LfoDestination { Pitch = 0, Cutoff, Amplitude };
+// PulseWidth is appended rather than inserted, so its numeric value (3)
+// doesn't shift Cutoff/Amplitude and break existing presets/automation.
+enum class LfoDestination { Pitch = 0, Cutoff, Amplitude, PulseWidth };
 
 class LFO
 {
