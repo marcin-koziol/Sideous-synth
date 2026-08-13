@@ -48,6 +48,18 @@ enum Params : uint32_t {
     kParamModWheelDestination,
     kParamGlideMode,
     kParamModWheelAmount,
+
+    // second, independent LFO - same waveform/destination/sync/amount shape
+    // as LFO1, so e.g. LFO1->Pulse Width and LFO2->Pitch (vibrato) can run
+    // at the same time instead of competing for the one destination slot.
+    // Appended rather than inserted so existing presets/automation for the
+    // params above keep their indices.
+    kParamLfo2Waveform,
+    kParamLfo2RateHz,
+    kParamLfo2Sync,
+    kParamLfo2Destination,
+    kParamLfo2Amount,
+
     kParamCount
 };
 
@@ -105,6 +117,12 @@ inline const ParamInfo& getParamInfo(uint32_t index) noexcept
         { "Mod Wheel Dest",   "mod_wheel_dest",      "",   0.0f,     3.0f,     0.0f,   ParamShape::Linear },
         { "Glide Mode",       "glide_mode",          "",   0.0f,     1.0f,     1.0f,   ParamShape::Linear },
         { "Mod Wheel Amount", "mod_wheel_amount",    "",   0.0f,     1.0f,     0.5f,   ParamShape::Linear },
+
+        { "LFO2 Waveform",    "lfo2_waveform",       "",   0.0f,     2.0f,     0.0f,   ParamShape::Linear },
+        { "LFO2 Rate",        "lfo2_rate_hz",        "Hz", 0.02f,   20.0f,     3.0f,   ParamShape::Logarithmic },
+        { "LFO2 Sync",        "lfo2_sync",           "",   0.0f,    14.0f,     0.0f,   ParamShape::Linear },
+        { "LFO2 Destination", "lfo2_destination",    "",   0.0f,     3.0f,     1.0f,   ParamShape::Linear },
+        { "LFO2 Amount",      "lfo2_amount",         "",   0.0f,     1.0f,     0.0f,   ParamShape::Linear },
     };
     return table[index];
 }

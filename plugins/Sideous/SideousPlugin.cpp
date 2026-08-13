@@ -171,6 +171,7 @@ protected:
             break;
 
         case kParamLfoDestination:
+        case kParamLfo2Destination:
             parameter.hints |= kParameterIsInteger;
             {
                 static ParameterEnumerationValue values[4] = {
@@ -186,7 +187,23 @@ protected:
             }
             break;
 
+        case kParamLfo2Waveform:
+            parameter.hints |= kParameterIsInteger;
+            {
+                static ParameterEnumerationValue values[3] = {
+                    { 0.0f, "Sine" },
+                    { 1.0f, "Saw" },
+                    { 2.0f, "Square" },
+                };
+                parameter.enumValues.count = 3;
+                parameter.enumValues.restrictedMode = true;
+                parameter.enumValues.values = values;
+                parameter.enumValues.deleteLater = false;
+            }
+            break;
+
         case kParamLfoSync:
+        case kParamLfo2Sync:
         case kParamArpSync:
             parameter.hints |= kParameterIsInteger;
             parameter.enumValues.count = 15;
@@ -317,6 +334,11 @@ protected:
         case kParamModWheelDestination: return (float)fParams.modWheelDestination;
         case kParamGlideMode:           return (float)fGlideMode;
         case kParamModWheelAmount:      return fParams.modWheelAmount;
+        case kParamLfo2Waveform:        return (float)fParams.lfo2Waveform;
+        case kParamLfo2RateHz:          return fLfo2RateHz;
+        case kParamLfo2Sync:            return fLfo2Sync;
+        case kParamLfo2Destination:     return (float)fParams.lfo2Destination;
+        case kParamLfo2Amount:          return fParams.lfo2Amount;
         default:                        return 0.0f;
         }
     }
@@ -391,6 +413,11 @@ protected:
             break;
         case kParamGlideMode:       fGlideMode = (int)(value + 0.5f); break;
         case kParamModWheelAmount:  fParams.modWheelAmount = value; break;
+        case kParamLfo2Waveform:    fParams.lfo2Waveform = (sideous::LfoWaveform)(int)(value + 0.5f); break;
+        case kParamLfo2RateHz:      fLfo2RateHz = value; break;
+        case kParamLfo2Sync:        fLfo2Sync = value; break;
+        case kParamLfo2Destination: fParams.lfo2Destination = (sideous::LfoDestination)(int)(value + 0.5f); break;
+        case kParamLfo2Amount:      fParams.lfo2Amount = value; break;
         default: return;
         }
 
@@ -430,9 +457,14 @@ protected:
                           ? timePos.bbt.beatsPerMinute : 120.0;
 
         const float lfoHz = syncedHz(fLfoSync, fLfoRateHz, bpm);
+        const float lfo2Hz = syncedHz(fLfo2Sync, fLfo2RateHz, bpm);
         for (sideous::Voice& voice : fVoices)
+        {
             voice.setLfoFrequency(lfoHz);
+            voice.setLfo2Frequency(lfo2Hz);
+        }
         fMonoVoice.setLfoFrequency(lfoHz);
+        fMonoVoice.setLfo2Frequency(lfo2Hz);
 
         const float arpHz = syncedHz(fArpSync, fArpRateHz, bpm);
         const float arpStepDuration = arpHz > 0.0f ? 1.0f / arpHz : 0.25f;
@@ -855,6 +887,8 @@ private:
 
     float fLfoRateHz = 2.0f;
     float fLfoSync = 0.0f; // 0 = free, see kSyncEnumValues
+    float fLfo2RateHz = 3.0f;
+    float fLfo2Sync = 0.0f; // 0 = free, see kSyncEnumValues
 
     bool fArpEnabled = false;
     int fArpPattern = 0;

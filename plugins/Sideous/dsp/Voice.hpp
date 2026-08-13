@@ -1,7 +1,8 @@
 /*
  * Sideous - a single synth voice: oscillator (+ suboscillator) -> amp ADSR,
- * in parallel with a filter whose cutoff is modulated by its own ADSR and an
- * optional LFO (which can also target pitch, amplitude, or pulse width).
+ * in parallel with a filter whose cutoff is modulated by its own ADSR and two
+ * independent LFOs (each can target pitch, cutoff, amplitude, or pulse
+ * width) - e.g. LFO1 on Pulse Width and LFO2 on Pitch (vibrato) at once.
  */
 
 #pragma once
@@ -48,6 +49,12 @@ struct VoiceParams
     float lfoAmount = 0.0f;         // 0..1; LFO frequency is set separately
                                      // per-block from tempo, see setLfoFrequency()
 
+    // independent second LFO - same shape as the first, so e.g. LFO1 can
+    // target Pulse Width while LFO2 handles vibrato (Pitch) at the same time
+    LfoWaveform lfo2Waveform = LfoWaveform::Sine;
+    LfoDestination lfo2Destination = LfoDestination::Cutoff;
+    float lfo2Amount = 0.0f;
+
     float portamentoTime = 0.0f;    // seconds; 0 = off, snaps to the new pitch
 
     ModWheelDestination modWheelDestination = ModWheelDestination::Off;
@@ -80,6 +87,7 @@ public:
         fFilterB.setSampleRate(sampleRate);
         fLadder.setSampleRate(sampleRate);
         fLfo.setSampleRate(sampleRate);
+        fLfo2.setSampleRate(sampleRate);
     }
 
     // retriggerEnvelope=false gives legato behavior: the pitch still moves
@@ -127,6 +135,7 @@ public:
             fAmpEnv.noteOn();
             fFilterEnv.noteOn();
             fLfo.reset();
+            fLfo2.reset();
         }
         fActive = true;
     }
@@ -151,6 +160,7 @@ public:
     // kept separate from applyParams() since it needs to track tempo changes
     // without re-touching every other per-note setting each block
     void setLfoFrequency(float hz) noexcept { fLfo.setFrequency(hz); }
+    void setLfo2Frequency(float hz) noexcept { fLfo2.setFrequency(hz); }
 
     // continuous MIDI controllers, also pushed every block regardless of
     // whether a note is currently sounding (so they're already in effect
@@ -203,6 +213,10 @@ public:
         fLfoDestination = p.lfoDestination;
         fLfoAmount = p.lfoAmount;
 
+        fLfo2.setWaveform(p.lfo2Waveform);
+        fLfo2Destination = p.lfo2Destination;
+        fLfo2Amount = p.lfo2Amount;
+
         fPortamentoTime = p.portamentoTime;
 
         fModWheelDestination = p.modWheelDestination;
@@ -228,20 +242,23 @@ public:
             }
         }
 
-        const float lfo = fLfo.process(); // -1..1; always advance phase so it
-                                           // stays click-free if destination changes mid-note
+        const float lfo = fLfo.process();   // -1..1; always advance phase so it
+        const float lfo2 = fLfo2.process(); // stays click-free if destination changes mid-note
 
-        // mod wheel vibrato rides the same LFO oscillator/rate, but is an
-        // independent depth from the LFO Amount knob - it always affects
-        // pitch when selected, regardless of what the LFO's own Destination
-        // is set to (so e.g. LFO->Cutoff and ModWheel->Vibrato can coexist).
-        // fModWheelAmount (0..1, shared across all three destinations) scales
-        // each one against its own musically-sane max, rather than every
-        // destination being a fixed, non-adjustable depth.
+        // mod wheel vibrato rides LFO1's oscillator/rate specifically (unchanged
+        // from before LFO2 existed), but is an independent depth from LFO1's own
+        // Amount knob - it always affects pitch when selected, regardless of what
+        // either LFO's Destination is set to (so e.g. LFO1->Cutoff, LFO2->Pitch,
+        // and ModWheel->Vibrato can all coexist). fModWheelAmount (0..1, shared
+        // across all three destinations) scales each one against its own
+        // musically-sane max, rather than every destination being a fixed,
+        // non-adjustable depth.
         const float lfoPitchSemitones = (fLfoDestination == LfoDestination::Pitch ? fLfoAmount : 0.0f) * 12.0f;
+        const float lfo2PitchSemitones = (fLfo2Destination == LfoDestination::Pitch ? fLfo2Amount : 0.0f) * 12.0f;
         const float vibratoSemitones = fModWheelDestination == ModWheelDestination::Vibrato
                                       ? fModWheel * fModWheelAmount * kVibratoMaxSemitones : 0.0f;
-        const float pitchSemitones = lfo * (lfoPitchSemitones + vibratoSemitones) + fPitchBendSemitones;
+        const float pitchSemitones = lfo * (lfoPitchSemitones + vibratoSemitones)
+                                    + lfo2 * lfo2PitchSemitones + fPitchBendSemitones;
         const float pitchRatio = std::exp2(pitchSemitones / 12.0f);
         fOsc.setFrequency(fCurrentFreq * pitchRatio);
         fSubOsc.setFrequency(fCurrentFreq * std::exp2(fSubOctave) * pitchRatio);
@@ -252,6 +269,8 @@ public:
         float pulseWidth = fBasePulseWidth;
         if (fLfoDestination == LfoDestination::PulseWidth)
             pulseWidth += fLfoAmount * lfo * 0.48f;
+        if (fLfo2Destination == LfoDestination::PulseWidth)
+            pulseWidth += fLfo2Amount * lfo2 * 0.48f;
         fOsc.setPulseWidth(pulseWidth);
         fSubOsc.setPulseWidth(pulseWidth);
 
@@ -272,6 +291,8 @@ public:
         float t = cutoffToNormalized(fBaseCutoff) + fEnvAmount * filterEnvLevel;
         if (fLfoDestination == LfoDestination::Cutoff)
             t += fLfoAmount * lfo;
+        if (fLfo2Destination == LfoDestination::Cutoff)
+            t += fLfo2Amount * lfo2;
         if (fModWheelDestination == ModWheelDestination::Cutoff)
             t += fModWheel * fModWheelAmount; // amount=1 can sweep the *entire* range, same convention as envAmount/lfoAmount above
         t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
@@ -297,7 +318,9 @@ public:
 
         float ampMod = 1.0f;
         if (fLfoDestination == LfoDestination::Amplitude)
-            ampMod = 1.0f - fLfoAmount * (1.0f - (lfo * 0.5f + 0.5f));
+            ampMod *= 1.0f - fLfoAmount * (1.0f - (lfo * 0.5f + 0.5f));
+        if (fLfo2Destination == LfoDestination::Amplitude)
+            ampMod *= 1.0f - fLfo2Amount * (1.0f - (lfo2 * 0.5f + 0.5f));
         if (fModWheelDestination == ModWheelDestination::Volume)
             ampMod *= (1.0f + fModWheel * fModWheelAmount); // amount=1 -> up to +6dB-ish boost at full wheel
 
@@ -329,6 +352,7 @@ private:
     Filter fFilterB;      // only used for the 24dB cascaded modes
     LadderFilter fLadder; // only used for the ladder mode
     LFO fLfo;
+    LFO fLfo2;
 
     FilterMode fFilterMode = FilterMode::LP12;
     float fBaseCutoff = 2000.0f;
@@ -348,6 +372,9 @@ private:
 
     LfoDestination fLfoDestination = LfoDestination::Pitch;
     float fLfoAmount = 0.0f;
+
+    LfoDestination fLfo2Destination = LfoDestination::Cutoff;
+    float fLfo2Amount = 0.0f;
 
     ModWheelDestination fModWheelDestination = ModWheelDestination::Off;
     float fModWheel = 0.0f;

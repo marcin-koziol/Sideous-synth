@@ -179,7 +179,11 @@ inline Layout buildLayout(float width, float height)
     const float row1Y = presetBarY + presetBarH + gap, row1H = 176.0f;
     const float row2Y = row1Y + row1H + gap, row2H = 210.0f;
     const float row3Y = row2Y + row2H + gap, row3H = 210.0f;
-    const float barY = row3Y + row3H + gap, barH = height - barY - margin;
+    // LFO2 needs the same height as LFO1/Arpeggiator (row3H, not row1H): it has
+    // an extra sync-dropdown row that Oscillator/Filter's single-knob-row layout
+    // (sized by row1H) doesn't
+    const float row4Y = row3Y + row3H + gap, row4H = row3H;
+    const float barY = row4Y + row4H + gap, barH = height - barY - margin;
 
     // --- preset bar --- (all positions absolute, left-to-right: prev/next,
     // then the name field filling the middle, then save/delete flush right)
@@ -209,6 +213,7 @@ inline Layout buildLayout(float width, float height)
     L.panels.push_back({ colBx,  row2Y, colW, row2H, "FILTER ENV", kGreen });
     L.panels.push_back({ margin, row3Y, colW, row3H, "LFO",        kOrange });
     L.panels.push_back({ colBx,  row3Y, colW, row3H, "ARPEGGIATOR",kPurple });
+    L.panels.push_back({ margin, row4Y, colW, row4H, "LFO2",       kAmber });
     L.panels.push_back({ margin, barY,  width - margin * 2.0f, barH, nullptr, kCyan });
 
     // --- oscillator ---
@@ -371,9 +376,42 @@ inline Layout buildLayout(float width, float height)
                    });
     }
 
-    // --- bottom bar ---
+    // --- LFO2 --- (independent second LFO, same layout as LFO1 above - lets
+    // e.g. LFO1 target Pulse Width while this one handles vibrato on Pitch)
     {
         const PanelBox& p = L.panels[6];
+
+        Selector wave;
+        wave.param = kParamLfo2Waveform;
+        wave.accent = p.accent;
+        wave.x = p.x + 14.0f; wave.y = p.y + 34.0f; wave.w = p.w * 0.44f; wave.h = 28.0f;
+        wave.options = { { 0.0f, "SINE" }, { 1.0f, "SAW" }, { 2.0f, "SQR" } };
+        L.selectors.push_back(wave);
+
+        Dropdown dest;
+        dest.param = kParamLfo2Destination;
+        dest.accent = p.accent;
+        dest.x = wave.x + wave.w + 10.0f; dest.y = wave.y; dest.w = (p.x + p.w - 14.0f) - dest.x; dest.h = 28.0f;
+        dest.options = { { 0.0f, "PITCH" }, { 1.0f, "CUTOFF" }, { 2.0f, "AMP" }, { 3.0f, "PW" } };
+        L.dropdowns.push_back(dest);
+
+        Dropdown sync;
+        sync.param = kParamLfo2Sync;
+        sync.accent = p.accent;
+        sync.x = p.x + 14.0f; sync.y = wave.y + wave.h + 14.0f; sync.w = p.w - 28.0f; sync.h = 28.0f;
+        sync.options = syncOptions();
+        L.dropdowns.push_back(sync);
+
+        addKnobRow(L.knobs, p.x, p.w, sync.y + sync.h + 50.0f, 26.0f, p.accent,
+                   {
+                       { kParamLfo2RateHz, "RATE" },
+                       { kParamLfo2Amount, "AMOUNT" },
+                   });
+    }
+
+    // --- bottom bar ---
+    {
+        const PanelBox& p = L.panels[7];
         const float cy = p.y + p.h * 0.5f;
         L.knobs.push_back({ kParamMasterVolume, p.x + 40.0f, cy, 26.0f, "VOLUME", kCyan });
 

@@ -22,9 +22,11 @@ whatever effects you already use.
 - **Dual ADSR**: separate envelopes for amp and filter cutoff, each with a
   shapeable curve and a live curve-graph visualization; filter envelope
   amount can sweep the entire cutoff range end to end
-- **LFO**: sine/saw/square, free-running or tempo-synced (1/1 down to 1/64
-  including dotted/triplet divisions), routable to pitch, cutoff, or volume —
-  handy for pseudo-arpeggios
+- **Two independent LFOs**: each sine/saw/square, free-running or
+  tempo-synced (1/1 down to 1/64 including dotted/triplet divisions),
+  routable to pitch, cutoff, volume, or pulse width — e.g. LFO1 on pulse
+  width and LFO2 on pitch (vibrato) at the same time, since they no longer
+  have to compete for one destination slot
 - **Arpeggiator**: Up / Down / Up-Down / Random patterns, 1–4 octaves,
   tempo-synced rate, adjustable gate length
 - **Voice modes**: 16-voice polyphony, or mono with portamento (glide time,
