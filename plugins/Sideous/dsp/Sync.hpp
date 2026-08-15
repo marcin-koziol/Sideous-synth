@@ -13,7 +13,9 @@ enum class SyncDivision {
     QuarterDotted, Quarter, QuarterTriplet,
     EighthDotted, Eighth, EighthTriplet,
     SixteenthDotted, Sixteenth, SixteenthTriplet,
-    ThirtySecond
+    ThirtySecond,
+    SixtyFourth,
+    OneTwentyEighth
 };
 
 inline float syncDivisionBeats(SyncDivision d) noexcept
@@ -33,8 +35,10 @@ inline float syncDivisionBeats(SyncDivision d) noexcept
     case SyncDivision::SixteenthDotted:  return 0.375f;
     case SyncDivision::Sixteenth:        return 0.25f;
     case SyncDivision::SixteenthTriplet: return 1.0f / 6.0f;
-    case SyncDivision::ThirtySecond:
-    default:                             return 0.125f;
+    case SyncDivision::ThirtySecond:     return 0.125f;
+    case SyncDivision::SixtyFourth:      return 0.0625f;
+    case SyncDivision::OneTwentyEighth:
+    default:                             return 0.03125f;
     }
 }
 

@@ -28,8 +28,8 @@ static constexpr const float kArpChordGraceSeconds = 0.03f;
 enum class ArpPattern { Up = 0, Down, UpDown, Random };
 
 // LFO/Arp "Sync" dropdown: 0 = free-running (use the Rate Hz knob),
-// 1..14 = SyncDivision::Whole..ThirtySecond
-static ParameterEnumerationValue kSyncEnumValues[15] = {
+// 1..16 = SyncDivision::Whole..OneTwentyEighth
+static ParameterEnumerationValue kSyncEnumValues[17] = {
     {  0.0f, "Free" },
     {  1.0f, "1/1" },
     {  2.0f, "1/2." },
@@ -45,6 +45,8 @@ static ParameterEnumerationValue kSyncEnumValues[15] = {
     { 12.0f, "1/16" },
     { 13.0f, "1/16T" },
     { 14.0f, "1/32" },
+    { 15.0f, "1/64" },
+    { 16.0f, "1/128" },
 };
 
 static float syncedHz(float syncParam, float freeHz, double bpm) noexcept
@@ -155,15 +157,19 @@ protected:
             }
             break;
 
+        // no longer a live playback waveform - see the enum comment in
+        // Params.hpp. Selecting/automating one of these regenerates the
+        // step sequencer's values via fillLfoStepPreset() in setParameterValue().
         case kParamLfoWaveform:
             parameter.hints |= kParameterIsInteger;
             {
-                static ParameterEnumerationValue values[3] = {
+                static ParameterEnumerationValue values[4] = {
                     { 0.0f, "Sine" },
                     { 1.0f, "Saw" },
                     { 2.0f, "Square" },
+                    { 3.0f, "Gate" },
                 };
-                parameter.enumValues.count = 3;
+                parameter.enumValues.count = 4;
                 parameter.enumValues.restrictedMode = true;
                 parameter.enumValues.values = values;
                 parameter.enumValues.deleteLater = false;
@@ -190,23 +196,29 @@ protected:
         case kParamLfo2Waveform:
             parameter.hints |= kParameterIsInteger;
             {
-                static ParameterEnumerationValue values[3] = {
+                static ParameterEnumerationValue values[4] = {
                     { 0.0f, "Sine" },
                     { 1.0f, "Saw" },
                     { 2.0f, "Square" },
+                    { 3.0f, "Gate" },
                 };
-                parameter.enumValues.count = 3;
+                parameter.enumValues.count = 4;
                 parameter.enumValues.restrictedMode = true;
                 parameter.enumValues.values = values;
                 parameter.enumValues.deleteLater = false;
             }
             break;
 
+        case kParamLfoStepCount:
+        case kParamLfo2StepCount:
+            parameter.hints |= kParameterIsInteger;
+            break;
+
         case kParamLfoSync:
         case kParamLfo2Sync:
         case kParamArpSync:
             parameter.hints |= kParameterIsInteger;
-            parameter.enumValues.count = 15;
+            parameter.enumValues.count = 17;
             parameter.enumValues.restrictedMode = true;
             parameter.enumValues.values = kSyncEnumValues;
             parameter.enumValues.deleteLater = false;
@@ -294,6 +306,11 @@ protected:
 
     float getParameterValue(uint32_t index) const override
     {
+        if (index >= kParamLfoStep1 && index <= kParamLfoStep16)
+            return fParams.lfoSteps[index - kParamLfoStep1];
+        if (index >= kParamLfo2Step1 && index <= kParamLfo2Step16)
+            return fParams.lfo2Steps[index - kParamLfo2Step1];
+
         switch (index)
         {
         case kParamWaveform:            return (float)fParams.waveform;
@@ -317,11 +334,12 @@ protected:
         case kParamFilterRelease:       return fParams.filterRelease;
         case kParamFilterEnvCurve:      return fParams.filterCurve;
         case kParamMasterVolume:        return fMasterVolume;
-        case kParamLfoWaveform:         return (float)fParams.lfoWaveform;
+        case kParamLfoWaveform:         return fLfoPresetTag;
         case kParamLfoRateHz:           return fLfoRateHz;
         case kParamLfoSync:             return fLfoSync;
         case kParamLfoDestination:      return (float)fParams.lfoDestination;
         case kParamLfoAmount:           return fParams.lfoAmount;
+        case kParamLfoStepCount:        return (float)fParams.lfoStepCount;
         case kParamArpEnabled:          return fArpEnabled ? 1.0f : 0.0f;
         case kParamArpPattern:          return (float)fArpPattern;
         case kParamArpOctaves:          return (float)fArpOctaves;
@@ -334,17 +352,35 @@ protected:
         case kParamModWheelDestination: return (float)fParams.modWheelDestination;
         case kParamGlideMode:           return (float)fGlideMode;
         case kParamModWheelAmount:      return fParams.modWheelAmount;
-        case kParamLfo2Waveform:        return (float)fParams.lfo2Waveform;
+        case kParamLfo2Waveform:        return fLfo2PresetTag;
         case kParamLfo2RateHz:          return fLfo2RateHz;
         case kParamLfo2Sync:            return fLfo2Sync;
         case kParamLfo2Destination:     return (float)fParams.lfo2Destination;
         case kParamLfo2Amount:          return fParams.lfo2Amount;
+        case kParamLfo2StepCount:       return (float)fParams.lfo2StepCount;
         default:                        return 0.0f;
         }
     }
 
     void setParameterValue(uint32_t index, float value) override
     {
+        if (index >= kParamLfoStep1 && index <= kParamLfoStep16)
+        {
+            fParams.lfoSteps[index - kParamLfoStep1] = value;
+            for (sideous::Voice& voice : fVoices)
+                voice.applyParams(fParams);
+            fMonoVoice.applyParams(fParams);
+            return;
+        }
+        if (index >= kParamLfo2Step1 && index <= kParamLfo2Step16)
+        {
+            fParams.lfo2Steps[index - kParamLfo2Step1] = value;
+            for (sideous::Voice& voice : fVoices)
+                voice.applyParams(fParams);
+            fMonoVoice.applyParams(fParams);
+            return;
+        }
+
         switch (index)
         {
         case kParamWaveform:
@@ -372,11 +408,15 @@ protected:
         case kParamFilterRelease:   fParams.filterRelease = value; break;
         case kParamFilterEnvCurve:  fParams.filterCurve = value; break;
         case kParamMasterVolume:    fMasterVolume = value; break;
-        case kParamLfoWaveform:     fParams.lfoWaveform = (sideous::LfoWaveform)(int)(value + 0.5f); break;
+        case kParamLfoWaveform:
+            fLfoPresetTag = value;
+            sideous::fillLfoStepPreset((sideous::LfoStepPreset)(int)(value + 0.5f), fParams.lfoStepCount, fParams.lfoSteps);
+            break;
         case kParamLfoRateHz:       fLfoRateHz = value; break;
         case kParamLfoSync:         fLfoSync = value; break;
         case kParamLfoDestination:  fParams.lfoDestination = (sideous::LfoDestination)(int)(value + 0.5f); break;
         case kParamLfoAmount:       fParams.lfoAmount = value; break;
+        case kParamLfoStepCount:    fParams.lfoStepCount = (int)(value + 0.5f); break;
         case kParamArpEnabled:
             fArpEnabled = value >= 0.5f;
             if (!fArpEnabled)
@@ -413,11 +453,15 @@ protected:
             break;
         case kParamGlideMode:       fGlideMode = (int)(value + 0.5f); break;
         case kParamModWheelAmount:  fParams.modWheelAmount = value; break;
-        case kParamLfo2Waveform:    fParams.lfo2Waveform = (sideous::LfoWaveform)(int)(value + 0.5f); break;
+        case kParamLfo2Waveform:
+            fLfo2PresetTag = value;
+            sideous::fillLfoStepPreset((sideous::LfoStepPreset)(int)(value + 0.5f), fParams.lfo2StepCount, fParams.lfo2Steps);
+            break;
         case kParamLfo2RateHz:      fLfo2RateHz = value; break;
         case kParamLfo2Sync:        fLfo2Sync = value; break;
         case kParamLfo2Destination: fParams.lfo2Destination = (sideous::LfoDestination)(int)(value + 0.5f); break;
         case kParamLfo2Amount:      fParams.lfo2Amount = value; break;
+        case kParamLfo2StepCount:   fParams.lfo2StepCount = (int)(value + 0.5f); break;
         default: return;
         }
 
@@ -889,6 +933,11 @@ private:
     float fLfoSync = 0.0f; // 0 = free, see kSyncEnumValues
     float fLfo2RateHz = 3.0f;
     float fLfo2Sync = 0.0f; // 0 = free, see kSyncEnumValues
+
+    // "last preset applied" echo for kParamLfoWaveform/kParamLfo2Waveform -
+    // no longer read by the DSP directly, see the enum comment in Params.hpp
+    float fLfoPresetTag = 0.0f;
+    float fLfo2PresetTag = 0.0f;
 
     bool fArpEnabled = false;
     int fArpPattern = 0;

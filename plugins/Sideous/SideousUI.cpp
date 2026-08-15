@@ -9,11 +9,13 @@
 
 #include "DistrhoUI.hpp"
 #include "Params.hpp"
+#include "dsp/LFO.hpp"
 #include "ui/FactoryPresets.hpp"
 #include "ui/PresetStore.hpp"
 #include "ui/UIPainter.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -115,6 +117,9 @@ protected:
         state.hoverDropdown = fHoverDropdown;
         state.openDropdown = fOpenDropdown;
         state.hoverDropdownOption = fHoverDropdownOption;
+        state.hoverStepSeq = fHoverStepSeq;
+        state.hoverStepSeqColumn = fHoverStepSeqColumn;
+        state.dragStepSeq = fDragStepSeq;
         state.autoShowValue = autoShow;
 
         state.presetName = fCurrentName.c_str();
@@ -143,14 +148,18 @@ protected:
             const int presetBtn = hitTestPresetButton(mx, my);
             if (presetBtn >= 0)
             {
-                fEditingName = false; // a button click always cancels any in-progress rename
+                // SAVE must see fEditingName/fEditBuffer as-is - it commits the
+                // in-progress rename itself (and clears fEditingName when done).
+                // Clearing it here first, like the other buttons do to cancel a
+                // pending rename, made SAVE silently discard the typed name and
+                // fall back to whatever fCurrentName already was.
                 switch (presetBtn)
                 {
-                case 0: presetStep(-1); break;
-                case 1: presetStep(1);  break;
+                case 0: fEditingName = false; presetStep(-1); break;
+                case 1: fEditingName = false; presetStep(1);  break;
                 case 2: presetSave();   break;
-                case 3: presetDelete(); break;
-                default: break;
+                case 3: fEditingName = false; presetDelete(); break;
+                default: fEditingName = false; break;
                 }
                 repaint();
                 return true;
@@ -205,10 +214,26 @@ protected:
             {
                 const ui::Selector& sel = fLayout.selectors[selIdx];
                 const float value = sel.options[optIdx].value;
-                editParameter(sel.param, true);
-                setParameterValue(sel.param, value);
-                editParameter(sel.param, false);
-                fValues[sel.param] = value;
+                if (sel.param == kParamLfoWaveform)
+                    applyLfoPreset(kParamLfoWaveform, kParamLfoStepCount, kParamLfoStep1, value);
+                else if (sel.param == kParamLfo2Waveform)
+                    applyLfoPreset(kParamLfo2Waveform, kParamLfo2StepCount, kParamLfo2Step1, value);
+                else
+                {
+                    editParameter(sel.param, true);
+                    setParameterValue(sel.param, value);
+                    editParameter(sel.param, false);
+                    fValues[sel.param] = value;
+                }
+                repaint();
+                return true;
+            }
+
+            int stepSeqIdx = -1, stepSeqCol = -1;
+            if (hitTestStepSeq(mx, my, stepSeqIdx, stepSeqCol))
+            {
+                fDragStepSeq = stepSeqIdx;
+                setStepSeqValue(stepSeqIdx, stepSeqCol, my, (ev.mod & kModifierShift) != 0);
                 repaint();
                 return true;
             }
@@ -252,6 +277,13 @@ protected:
             return true;
         }
 
+        if (fDragStepSeq >= 0)
+        {
+            fDragStepSeq = -1;
+            repaint();
+            return true;
+        }
+
         return false;
     }
 
@@ -259,6 +291,16 @@ protected:
     {
         const double mx = ev.pos.getX();
         const double my = ev.pos.getY();
+
+        if (fDragStepSeq >= 0)
+        {
+            const ui::StepSeq& seq = fLayout.stepSeqs[fDragStepSeq];
+            const int stepCount = (int)(fValues[seq.countParam] + 0.5f);
+            const int col = stepSeqColumnAt(seq, stepCount, mx);
+            setStepSeqValue(fDragStepSeq, col, my, (ev.mod & kModifierShift) != 0);
+            repaint();
+            return true;
+        }
 
         if (fDragKnob >= 0)
         {
@@ -291,15 +333,20 @@ protected:
         hitTestSelector(mx, my, selIdx, optIdx);
         const int newHoverDropdown = hitTestDropdownClosed(mx, my);
         const int newHoverPresetButton = hitTestPresetButton(mx, my);
+        int stepSeqIdx = -1, stepSeqCol = -1;
+        hitTestStepSeq(mx, my, stepSeqIdx, stepSeqCol);
 
         if (newHoverKnob != fHoverKnob || selIdx != fHoverSelector || optIdx != fHoverSelectorOption
-            || newHoverDropdown != fHoverDropdown || newHoverPresetButton != fHoverPresetButton)
+            || newHoverDropdown != fHoverDropdown || newHoverPresetButton != fHoverPresetButton
+            || stepSeqIdx != fHoverStepSeq || stepSeqCol != fHoverStepSeqColumn)
         {
             fHoverKnob = newHoverKnob;
             fHoverSelector = selIdx;
             fHoverSelectorOption = optIdx;
             fHoverDropdown = newHoverDropdown;
             fHoverPresetButton = newHoverPresetButton;
+            fHoverStepSeq = stepSeqIdx;
+            fHoverStepSeqColumn = stepSeqCol;
             repaint();
         }
 
@@ -444,6 +491,85 @@ private:
         return false;
     }
 
+    bool hitTestStepSeq(double x, double y, int& seqIdx, int& colIdx) const noexcept
+    {
+        seqIdx = -1;
+        colIdx = -1;
+
+        for (size_t i = 0; i < fLayout.stepSeqs.size(); ++i)
+        {
+            const ui::StepSeq& seq = fLayout.stepSeqs[i];
+            if (x < seq.x || x > seq.x + seq.w || y < seq.y || y > seq.y + seq.h)
+                continue;
+
+            const int stepCount = (int)(fValues[seq.countParam] + 0.5f);
+            seqIdx = (int)i;
+            colIdx = stepSeqColumnAt(seq, stepCount, x);
+            return true;
+        }
+        return false;
+    }
+
+    // clamped rather than a strict hit-test: lets a drag that strays slightly
+    // past the grid's left/right edge keep painting the boundary column
+    // instead of dropping the gesture.
+    static int stepSeqColumnAt(const ui::StepSeq& seq, int stepCount, double x) noexcept
+    {
+        double rel = (x - seq.x) / seq.w;
+        rel = rel < 0.0 ? 0.0 : (rel > 0.9999 ? 0.9999 : rel);
+        int col = (int)(rel * (double)stepCount);
+        return col < 0 ? 0 : (col >= stepCount ? stepCount - 1 : col);
+    }
+
+    // vertical mouse position -> step value (top = +1, bottom = -1); Shift
+    // quantizes to twelfths, so at LFO Amount=1 with Destination=Pitch a
+    // hand-drawn step lands exactly on a semitone.
+    void setStepSeqValue(int seqIdx, int colIdx, double my, bool quantize) noexcept
+    {
+        const ui::StepSeq& seq = fLayout.stepSeqs[seqIdx];
+        const uint32_t param = seq.param0 + (uint32_t)colIdx;
+
+        float t = (float)((seq.y + seq.h - my) / seq.h);
+        float value = t * 2.0f - 1.0f;
+        value = value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value);
+        if (quantize)
+        {
+            value = std::round(value * 12.0f) / 12.0f;
+            value = value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value);
+        }
+
+        editParameter(param, true);
+        setParameterValue(param, value);
+        editParameter(param, false);
+        fValues[param] = value;
+    }
+
+    // fills an LFO's step array from a one-click shape preset. Computed
+    // locally (not just delegated to the DSP side, which does the same fill
+    // in SideousPlugin.cpp's setParameterValue()) so this UI's own fValues[]
+    // cache - and therefore what's immediately drawn - reflects the new
+    // shape without waiting on a round-trip through the host/audio thread.
+    void applyLfoPreset(uint32_t waveParam, uint32_t stepCountParam, uint32_t step1Param, float presetValue) noexcept
+    {
+        const int stepCount = (int)(fValues[stepCountParam] + 0.5f);
+        float steps[sideous::kLfoMaxSteps];
+        sideous::fillLfoStepPreset((sideous::LfoStepPreset)(int)(presetValue + 0.5f), stepCount, steps);
+
+        editParameter(waveParam, true);
+        setParameterValue(waveParam, presetValue);
+        editParameter(waveParam, false);
+        fValues[waveParam] = presetValue;
+
+        for (int i = 0; i < stepCount; ++i)
+        {
+            const uint32_t param = step1Param + (uint32_t)i;
+            editParameter(param, true);
+            setParameterValue(param, steps[i]);
+            editParameter(param, false);
+            fValues[param] = steps[i];
+        }
+    }
+
     static bool insideButton(const ui::Button& b, double x, double y) noexcept
     {
         return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
@@ -563,6 +689,10 @@ private:
     int fHoverDropdown = -1;
     int fOpenDropdown = -1;
     int fHoverDropdownOption = -1;
+
+    int fHoverStepSeq = -1;
+    int fHoverStepSeqColumn = -1;
+    int fDragStepSeq = -1;
 
     int fLastClickKnob = -1;
     std::chrono::steady_clock::time_point fLastClickTime{};

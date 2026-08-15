@@ -87,6 +87,18 @@ struct Dropdown
     Color accent;
 };
 
+// interactive step-sequencer grid: `stepCount` bar columns spanning
+// [param0 .. param0+stepCount-1], each bipolar around a drawn center line.
+// Click/drag sets a column's value from vertical mouse position; see
+// SideousUI.cpp's hitTestStepSeq()/onMouse()/onMotion() for the interaction.
+struct StepSeq
+{
+    uint32_t param0;      // kParamLfoStep1 or kParamLfo2Step1
+    uint32_t countParam;  // kParamLfoStepCount or kParamLfo2StepCount
+    float x, y, w, h;
+    Color accent;
+};
+
 struct PanelBox { float x, y, w, h; const char* title; Color accent; };
 
 // preset bar: prev/next/save/delete buttons plus a name field. Deliberately
@@ -117,6 +129,7 @@ struct Layout
     std::vector<Knob> knobs;
     std::vector<Selector> selectors;
     std::vector<Dropdown> dropdowns;
+    std::vector<StepSeq> stepSeqs;
     std::vector<EnvelopeGraph> envelopeGraphs;
     PresetBarLayout presetBar;
 };
@@ -138,7 +151,9 @@ inline void addKnobRow(std::vector<Knob>& knobs, float panelX, float panelW, flo
 }
 
 // shared by both the LFO and arp rate dropdowns: 0 = free-running (use the
-// paired Rate Hz knob), 1..14 = tempo note divisions (dotted/straight/triplet)
+// paired Rate Hz knob), 1..16 = tempo note divisions (dotted/straight/triplet
+// down through 1/32, then plain 1/64 and 1/128 - same as 1/32, no dotted/
+// triplet variant, to keep the dropdown from growing enormous)
 inline std::vector<SelectorOption> syncOptions()
 {
     return {
@@ -157,6 +172,8 @@ inline std::vector<SelectorOption> syncOptions()
         { 12.0f, "1/16" },
         { 13.0f, "1/16T" },
         { 14.0f, "1/32" },
+        { 15.0f, "1/64" },
+        { 16.0f, "1/128" },
     };
 }
 
@@ -166,24 +183,34 @@ inline Layout buildLayout(float width, float height)
     L.width = width;
     L.height = height;
 
-    const float margin = 16.0f;
-    const float gap = 14.0f;
-    const float colW = (width - margin * 2.0f - gap) / 2.0f;
+    // wide-and-short rather than narrow-and-tall: a 2/3-column grid instead
+    // of a single stacked column, so the window actually fits on a 1080p
+    // screen (matches the footprint of sideous-bass/sideous-drums/
+    // Ostinateous - this plugin was the odd one out, stacked tall enough to
+    // run off the bottom of the screen).
+    const float margin = 12.0f;
+    const float gap = 8.0f;
+    const float fullW = width - margin * 2.0f;
+    const float colW = (fullW - gap) / 2.0f;             // 2-col rows: AMP/FILTER ENV, LFO/LFO2
     const float colBx = margin + colW + gap;
+    const float col3W = (fullW - gap * 2.0f) / 3.0f;      // 3-col row: OSC/FILTER/ARP
+    const float col3Bx = margin + col3W + gap;
+    const float col3Cx = col3Bx + col3W + gap;
 
     // preset bar: full width, right below the header; everything else starts below it
-    const float presetBarY = 64.0f, presetBarH = 46.0f;
+    const float presetBarY = 48.0f, presetBarH = 40.0f;
 
-    // row1H must clear: top selector row (34+30) + gap to knob row (56) +
-    // knob radius (26) + label baseline offset (14) + bottom padding.
-    const float row1Y = presetBarY + presetBarH + gap, row1H = 176.0f;
-    const float row2Y = row1Y + row1H + gap, row2H = 210.0f;
+    // row1H is set by ARPEGGIATOR (an extra selector/dropdown row that
+    // OSCILLATOR/FILTER don't have), not by those two - they end up with a
+    // little slack below their content, which is unavoidable since all three
+    // panels in this row share one height.
+    const float row1Y = presetBarY + presetBarH + gap, row1H = 152.0f;
+    const float row2Y = row1Y + row1H + gap, row2H = 146.0f;
+    // LFO/LFO2 sit side by side rather than stacked - each panel's own
+    // sidebar-plus-grid layout (see buildLfoPanel below) is what drives
+    // row3H, not the full window width.
     const float row3Y = row2Y + row2H + gap, row3H = 210.0f;
-    // LFO2 needs the same height as LFO1/Arpeggiator (row3H, not row1H): it has
-    // an extra sync-dropdown row that Oscillator/Filter's single-knob-row layout
-    // (sized by row1H) doesn't
-    const float row4Y = row3Y + row3H + gap, row4H = row3H;
-    const float barY = row4Y + row4H + gap, barH = height - barY - margin;
+    const float barY = row3Y + row3H + gap, barH = height - barY - margin;
 
     // --- preset bar --- (all positions absolute, left-to-right: prev/next,
     // then the name field filling the middle, then save/delete flush right)
@@ -207,14 +234,14 @@ inline Layout buildLayout(float width, float height)
         L.presetBar.nameH = h;
     }
 
-    L.panels.push_back({ margin, row1Y, colW, row1H, "OSCILLATOR", kCyan });
-    L.panels.push_back({ colBx,  row1Y, colW, row1H, "FILTER",     kMagenta });
-    L.panels.push_back({ margin, row2Y, colW, row2H, "AMP ENV",    kYellow });
-    L.panels.push_back({ colBx,  row2Y, colW, row2H, "FILTER ENV", kGreen });
-    L.panels.push_back({ margin, row3Y, colW, row3H, "LFO",        kOrange });
-    L.panels.push_back({ colBx,  row3Y, colW, row3H, "ARPEGGIATOR",kPurple });
-    L.panels.push_back({ margin, row4Y, colW, row4H, "LFO2",       kAmber });
-    L.panels.push_back({ margin, barY,  width - margin * 2.0f, barH, nullptr, kCyan });
+    L.panels.push_back({ margin,   row1Y, col3W, row1H, "OSCILLATOR", kCyan });    // 0
+    L.panels.push_back({ col3Bx,   row1Y, col3W, row1H, "FILTER",     kMagenta }); // 1
+    L.panels.push_back({ margin,   row2Y, colW,  row2H, "AMP ENV",    kYellow });  // 2
+    L.panels.push_back({ colBx,    row2Y, colW,  row2H, "FILTER ENV", kGreen });   // 3
+    L.panels.push_back({ margin,   row3Y, colW,  row3H, "LFO",        kOrange });  // 4
+    L.panels.push_back({ colBx,    row3Y, colW,  row3H, "LFO2",       kAmber });   // 5
+    L.panels.push_back({ col3Cx,   row1Y, col3W, row1H, "ARPEGGIATOR",kPurple });  // 6
+    L.panels.push_back({ margin,   barY,  fullW, barH,  nullptr, kCyan });         // 7
 
     // --- oscillator ---
     {
@@ -222,26 +249,26 @@ inline Layout buildLayout(float width, float height)
         Selector wave;
         wave.param = kParamWaveform;
         wave.accent = p.accent;
-        wave.x = p.x + 14.0f; wave.y = p.y + 34.0f; wave.w = p.w - 28.0f; wave.h = 30.0f;
+        wave.x = p.x + 12.0f; wave.y = p.y + 26.0f; wave.w = p.w - 24.0f; wave.h = 24.0f;
         wave.options = { { 0.0f, "SAW" }, { 1.0f, "PULSE" }, { 2.0f, "TRI" } };
         L.selectors.push_back(wave);
 
-        const float rowY = p.y + 34.0f + 30.0f + 56.0f;
+        const float rowY = p.y + 26.0f + 24.0f + 40.0f;
 
         // PW knob | sub-osc octave selector | sub-osc level knob, side by side
-        L.knobs.push_back({ kParamPulseWidth, p.x + p.w * 0.16f, rowY, 26.0f, "PW", p.accent });
+        L.knobs.push_back({ kParamPulseWidth, p.x + p.w * 0.16f, rowY, 22.0f, "PW", p.accent });
 
         Selector subOct;
         subOct.param = kParamSubOctave;
         subOct.accent = p.accent;
         subOct.w = p.w * 0.40f;
         subOct.x = p.x + p.w * 0.5f - subOct.w * 0.5f;
-        subOct.h = 28.0f;
+        subOct.h = 24.0f;
         subOct.y = rowY - subOct.h * 0.5f;
         subOct.options = { { -2.0f, "-2" }, { -1.0f, "-1" }, { 1.0f, "+1" }, { 2.0f, "+2" } };
         L.selectors.push_back(subOct);
 
-        L.knobs.push_back({ kParamSubLevel, p.x + p.w * 0.84f, rowY, 26.0f, "SUB LVL", p.accent });
+        L.knobs.push_back({ kParamSubLevel, p.x + p.w * 0.84f, rowY, 22.0f, "SUB LVL", p.accent });
     }
 
     // --- filter ---
@@ -250,7 +277,7 @@ inline Layout buildLayout(float width, float height)
         Dropdown mode;
         mode.param = kParamFilterMode;
         mode.accent = p.accent;
-        mode.x = p.x + 14.0f; mode.y = p.y + 34.0f; mode.w = p.w - 28.0f; mode.h = 30.0f;
+        mode.x = p.x + 12.0f; mode.y = p.y + 26.0f; mode.w = p.w - 24.0f; mode.h = 24.0f;
         mode.options = {
             { 0.0f, "LOWPASS 12dB" },
             { 1.0f, "LOWPASS 24dB" },
@@ -261,7 +288,7 @@ inline Layout buildLayout(float width, float height)
         };
         L.dropdowns.push_back(mode);
 
-        addKnobRow(L.knobs, p.x, p.w, p.y + 34.0f + 30.0f + 56.0f, 26.0f, p.accent,
+        addKnobRow(L.knobs, p.x, p.w, p.y + 26.0f + 24.0f + 40.0f, 22.0f, p.accent,
                    {
                        { kParamFilterCutoff,    "CUTOFF" },
                        { kParamFilterResonance, "RESO" },
@@ -273,8 +300,8 @@ inline Layout buildLayout(float width, float height)
     // --- amp envelope ---
     {
         const PanelBox& p = L.panels[2];
-        const float rowY = p.y + 34.0f + 60.0f;
-        addKnobRow(L.knobs, p.x, p.w, rowY, 24.0f, p.accent,
+        const float rowY = p.y + 26.0f + 30.0f;
+        addKnobRow(L.knobs, p.x, p.w, rowY, 20.0f, p.accent,
                    {
                        { kParamAmpAttack,           "ATTACK" },
                        { kParamAmpDecay,             "DECAY" },
@@ -286,14 +313,14 @@ inline Layout buildLayout(float width, float height)
 
         L.envelopeGraphs.push_back({
             kParamAmpAttack, kParamAmpDecay, kParamAmpSustain, kParamAmpRelease, kParamAmpCurve,
-            p.x + 14.0f, rowY + 24.0f + 24.0f, p.w - 28.0f, 56.0f, p.accent });
+            p.x + 12.0f, rowY + 20.0f + 22.0f, p.w - 24.0f, 38.0f, p.accent });
     }
 
     // --- filter envelope ---
     {
         const PanelBox& p = L.panels[3];
-        const float rowY = p.y + 34.0f + 60.0f;
-        addKnobRow(L.knobs, p.x, p.w, rowY, 24.0f, p.accent,
+        const float rowY = p.y + 26.0f + 30.0f;
+        addKnobRow(L.knobs, p.x, p.w, rowY, 20.0f, p.accent,
                    {
                        { kParamFilterAttack,   "ATTACK" },
                        { kParamFilterDecay,    "DECAY" },
@@ -304,71 +331,102 @@ inline Layout buildLayout(float width, float height)
 
         L.envelopeGraphs.push_back({
             kParamFilterAttack, kParamFilterDecay, kParamFilterSustain, kParamFilterRelease, kParamFilterEnvCurve,
-            p.x + 14.0f, rowY + 24.0f + 24.0f, p.w - 28.0f, 56.0f, p.accent });
+            p.x + 12.0f, rowY + 20.0f + 22.0f, p.w - 24.0f, 38.0f, p.accent });
     }
 
-    // --- LFO ---
+    // --- LFO / LFO2 --- (identical layout, shared by this lambda: a sidebar
+    // of controls on the left, the step-sequencer grid filling the rest of
+    // the panel on the right - like a hardware step sequencer, controls
+    // beside the steps rather than stacked above them, which keeps the
+    // panel height from ballooning even with 16 clickable/drawable columns)
+    auto buildLfoPanel = [&](const PanelBox& p, uint32_t waveParam, uint32_t destParam, uint32_t syncParam,
+                              uint32_t stepCountParam, uint32_t step1Param,
+                              uint32_t rateParam, uint32_t amountParam)
     {
-        const PanelBox& p = L.panels[4];
+        const float sideW = p.w * 0.34f;
+        const float sideX = p.x + 10.0f;
+        const float sideContentW = sideW - 10.0f;
 
         Selector wave;
-        wave.param = kParamLfoWaveform;
+        wave.param = waveParam;
         wave.accent = p.accent;
-        wave.x = p.x + 14.0f; wave.y = p.y + 34.0f; wave.w = p.w * 0.44f; wave.h = 28.0f;
-        wave.options = { { 0.0f, "SINE" }, { 1.0f, "SAW" }, { 2.0f, "SQR" } };
+        wave.x = sideX; wave.y = p.y + 24.0f; wave.w = sideContentW; wave.h = 22.0f;
+        wave.options = { { 0.0f, "SINE" }, { 1.0f, "SAW" }, { 2.0f, "SQR" }, { 3.0f, "GATE" } };
         L.selectors.push_back(wave);
 
-        // a dropdown rather than a Selector button row - a 4th destination
-        // (pulse width) would leave too little room per button in this
-        // half-width panel column
         Dropdown dest;
-        dest.param = kParamLfoDestination;
+        dest.param = destParam;
         dest.accent = p.accent;
-        dest.x = wave.x + wave.w + 10.0f; dest.y = wave.y; dest.w = (p.x + p.w - 14.0f) - dest.x; dest.h = 28.0f;
+        dest.x = sideX; dest.y = wave.y + wave.h + 6.0f; dest.w = sideContentW; dest.h = 22.0f;
         dest.options = { { 0.0f, "PITCH" }, { 1.0f, "CUTOFF" }, { 2.0f, "AMP" }, { 3.0f, "PW" } };
         L.dropdowns.push_back(dest);
 
         Dropdown sync;
-        sync.param = kParamLfoSync;
+        sync.param = syncParam;
         sync.accent = p.accent;
-        sync.x = p.x + 14.0f; sync.y = wave.y + wave.h + 14.0f; sync.w = p.w - 28.0f; sync.h = 28.0f;
+        sync.x = sideX; sync.y = dest.y + dest.h + 6.0f; sync.w = sideContentW; sync.h = 22.0f;
         sync.options = syncOptions();
         L.dropdowns.push_back(sync);
 
-        addKnobRow(L.knobs, p.x, p.w, sync.y + sync.h + 50.0f, 26.0f, p.accent,
-                   {
-                       { kParamLfoRateHz, "RATE" },
-                       { kParamLfoAmount, "AMOUNT" },
-                   });
-    }
+        // quick-pick step counts rather than a numeric entry widget - covers
+        // the common resolutions without needing a new input type
+        Selector stepCount;
+        stepCount.param = stepCountParam;
+        stepCount.accent = p.accent;
+        stepCount.x = sideX; stepCount.y = sync.y + sync.h + 6.0f; stepCount.w = sideContentW; stepCount.h = 20.0f;
+        stepCount.options = { { 4.0f, "4" }, { 8.0f, "8" }, { 16.0f, "16" } };
+        L.selectors.push_back(stepCount);
 
-    // --- arpeggiator ---
+        addKnobRow(L.knobs, p.x, sideW, stepCount.y + stepCount.h + 34.0f, 16.0f, p.accent,
+                   {
+                       { rateParam,   "RATE" },
+                       { amountParam, "AMOUNT" },
+                   });
+
+        StepSeq grid;
+        grid.param0 = step1Param;
+        grid.countParam = stepCountParam;
+        grid.accent = p.accent;
+        grid.x = p.x + sideW + 10.0f;
+        grid.y = p.y + 24.0f;
+        grid.w = (p.x + p.w - 10.0f) - grid.x;
+        grid.h = p.h - 24.0f - 10.0f;
+        L.stepSeqs.push_back(grid);
+    };
+
+    buildLfoPanel(L.panels[4], kParamLfoWaveform, kParamLfoDestination, kParamLfoSync,
+                  kParamLfoStepCount, kParamLfoStep1, kParamLfoRateHz, kParamLfoAmount);
+    buildLfoPanel(L.panels[5], kParamLfo2Waveform, kParamLfo2Destination, kParamLfo2Sync,
+                  kParamLfo2StepCount, kParamLfo2Step1, kParamLfo2RateHz, kParamLfo2Amount);
+
+    // --- arpeggiator --- (moved to its own full-width row: no longer fits
+    // half-width beside LFO1 now that LFO1 needs the full panel width)
     {
-        const PanelBox& p = L.panels[5];
+        const PanelBox& p = L.panels[6];
 
         Selector enabled;
         enabled.param = kParamArpEnabled;
         enabled.accent = p.accent;
-        enabled.x = p.x + 14.0f; enabled.y = p.y + 34.0f; enabled.w = p.w * 0.26f; enabled.h = 28.0f;
+        enabled.x = p.x + 12.0f; enabled.y = p.y + 26.0f; enabled.w = p.w * 0.26f; enabled.h = 24.0f;
         enabled.options = { { 0.0f, "OFF" }, { 1.0f, "ON" } };
         L.selectors.push_back(enabled);
 
         Selector pattern;
         pattern.param = kParamArpPattern;
         pattern.accent = p.accent;
-        pattern.x = enabled.x + enabled.w + 10.0f; pattern.y = enabled.y;
-        pattern.w = (p.x + p.w - 14.0f) - pattern.x; pattern.h = 28.0f;
+        pattern.x = enabled.x + enabled.w + 8.0f; pattern.y = enabled.y;
+        pattern.w = (p.x + p.w - 12.0f) - pattern.x; pattern.h = 24.0f;
         pattern.options = { { 0.0f, "UP" }, { 1.0f, "DOWN" }, { 2.0f, "UP/DN" }, { 3.0f, "RAND" } };
         L.selectors.push_back(pattern);
 
         Dropdown sync;
         sync.param = kParamArpSync;
         sync.accent = p.accent;
-        sync.x = p.x + 14.0f; sync.y = enabled.y + enabled.h + 14.0f; sync.w = p.w - 28.0f; sync.h = 28.0f;
+        sync.x = p.x + 12.0f; sync.y = enabled.y + enabled.h + 8.0f; sync.w = p.w - 24.0f; sync.h = 24.0f;
         sync.options = syncOptions();
         L.dropdowns.push_back(sync);
 
-        addKnobRow(L.knobs, p.x, p.w, sync.y + sync.h + 50.0f, 26.0f, p.accent,
+        addKnobRow(L.knobs, p.x, p.w, sync.y + sync.h + 26.0f, 18.0f, p.accent,
                    {
                        { kParamArpOctaves,    "OCTAVES" },
                        { kParamArpRateHz,     "RATE" },
@@ -376,70 +434,37 @@ inline Layout buildLayout(float width, float height)
                    });
     }
 
-    // --- LFO2 --- (independent second LFO, same layout as LFO1 above - lets
-    // e.g. LFO1 target Pulse Width while this one handles vibrato on Pitch)
-    {
-        const PanelBox& p = L.panels[6];
-
-        Selector wave;
-        wave.param = kParamLfo2Waveform;
-        wave.accent = p.accent;
-        wave.x = p.x + 14.0f; wave.y = p.y + 34.0f; wave.w = p.w * 0.44f; wave.h = 28.0f;
-        wave.options = { { 0.0f, "SINE" }, { 1.0f, "SAW" }, { 2.0f, "SQR" } };
-        L.selectors.push_back(wave);
-
-        Dropdown dest;
-        dest.param = kParamLfo2Destination;
-        dest.accent = p.accent;
-        dest.x = wave.x + wave.w + 10.0f; dest.y = wave.y; dest.w = (p.x + p.w - 14.0f) - dest.x; dest.h = 28.0f;
-        dest.options = { { 0.0f, "PITCH" }, { 1.0f, "CUTOFF" }, { 2.0f, "AMP" }, { 3.0f, "PW" } };
-        L.dropdowns.push_back(dest);
-
-        Dropdown sync;
-        sync.param = kParamLfo2Sync;
-        sync.accent = p.accent;
-        sync.x = p.x + 14.0f; sync.y = wave.y + wave.h + 14.0f; sync.w = p.w - 28.0f; sync.h = 28.0f;
-        sync.options = syncOptions();
-        L.dropdowns.push_back(sync);
-
-        addKnobRow(L.knobs, p.x, p.w, sync.y + sync.h + 50.0f, 26.0f, p.accent,
-                   {
-                       { kParamLfo2RateHz, "RATE" },
-                       { kParamLfo2Amount, "AMOUNT" },
-                   });
-    }
-
     // --- bottom bar ---
     {
         const PanelBox& p = L.panels[7];
         const float cy = p.y + p.h * 0.5f;
-        L.knobs.push_back({ kParamMasterVolume, p.x + 40.0f, cy, 26.0f, "VOLUME", kCyan });
+        L.knobs.push_back({ kParamMasterVolume, p.x + 60.0f, cy, 16.0f, "VOLUME", kCyan });
 
         Selector mode;
         mode.param = kParamVoiceMode;
         mode.accent = p.accent;
-        mode.x = p.x + 95.0f; mode.y = cy - 14.0f; mode.w = 110.0f; mode.h = 28.0f;
+        mode.x = p.x + 180.0f; mode.y = cy - 12.0f; mode.w = 130.0f; mode.h = 24.0f;
         mode.options = { { 0.0f, "POLY" }, { 1.0f, "MONO" } };
         L.selectors.push_back(mode);
 
-        L.knobs.push_back({ kParamPortamentoTime, p.x + 225.0f, cy, 20.0f, "GLIDE", kCyan });
-        L.knobs.push_back({ kParamPitchBendRange, p.x + 275.0f, cy, 20.0f, "BEND", kCyan });
+        L.knobs.push_back({ kParamPortamentoTime, p.x + 430.0f, cy, 16.0f, "GLIDE", kCyan });
+        L.knobs.push_back({ kParamPitchBendRange, p.x + 490.0f, cy, 16.0f, "BEND", kCyan });
 
         Selector glideMode;
         glideMode.param = kParamGlideMode;
         glideMode.accent = p.accent;
         glideMode.caption = "GLIDE MODE";
-        glideMode.x = p.x + 310.0f; glideMode.y = cy - 14.0f; glideMode.w = 110.0f; glideMode.h = 28.0f;
+        glideMode.x = p.x + 550.0f; glideMode.y = cy - 12.0f; glideMode.w = 130.0f; glideMode.h = 24.0f;
         glideMode.options = { { 0.0f, "LEGATO" }, { 1.0f, "ALWAYS" } };
         L.selectors.push_back(glideMode);
 
-        L.knobs.push_back({ kParamModWheelAmount, p.x + 450.0f, cy, 20.0f, "MW AMT", kCyan });
+        L.knobs.push_back({ kParamModWheelAmount, p.x + 820.0f, cy, 16.0f, "MW AMT", kCyan });
 
         Selector modWheel;
         modWheel.param = kParamModWheelDestination;
         modWheel.accent = p.accent;
         modWheel.caption = "MOD WHEEL";
-        modWheel.x = p.x + 485.0f; modWheel.y = cy - 14.0f; modWheel.w = 243.0f; modWheel.h = 28.0f;
+        modWheel.x = p.x + 880.0f; modWheel.y = cy - 12.0f; modWheel.w = (p.w - 12.0f) - 880.0f; modWheel.h = 24.0f;
         modWheel.options = { { 0.0f, "OFF" }, { 1.0f, "VIBRATO" }, { 2.0f, "CUTOFF" }, { 3.0f, "VOLUME" } };
         L.selectors.push_back(modWheel);
     }
@@ -493,7 +518,7 @@ inline void getSelectorOptionRect(const Selector& sel, size_t i, double& ox, dou
 
 // dropdown open-list option rects, same drawing/hit-test-sharing rationale.
 // opens downward normally, but flips upward if the list (which can be long -
-// the tempo-sync menus have 15 entries) would otherwise run off the bottom
+// the tempo-sync menus have 17 entries) would otherwise run off the bottom
 // of the window and there's more room above the closed box than below it.
 inline void getDropdownOptionRect(const Dropdown& dd, size_t i, float layoutHeight, double& oy, double& oh) noexcept
 {
@@ -508,6 +533,16 @@ inline void getDropdownOptionRect(const Dropdown& dd, size_t i, float layoutHeig
         oy = (dd.y - n * oh) + oh * (double)i;
     else
         oy = dd.y + dd.h + oh * (double)i;
+}
+
+// step-sequencer column rects, same drawing/hit-test-sharing rationale as
+// the selector/dropdown option rects above. stepCount is passed separately
+// (rather than read off the struct) since it's live parameter state, not
+// part of the static layout.
+inline void getStepSeqColumnRect(const StepSeq& seq, int stepCount, int i, double& ox, double& ow) noexcept
+{
+    ow = seq.w / (double)stepCount;
+    ox = seq.x + ow * (double)i;
 }
 
 // -----------------------------------------------------------------------------------------------------------
@@ -608,6 +643,9 @@ struct PaintState
     int hoverDropdown = -1;            // index into layout.dropdowns, or -1 (closed-box hover)
     int openDropdown = -1;            // index into layout.dropdowns, or -1
     int hoverDropdownOption = -1;
+    int hoverStepSeq = -1;             // index into layout.stepSeqs, or -1
+    int hoverStepSeqColumn = -1;
+    int dragStepSeq = -1;
     const bool* autoShowValue = nullptr; // [kParamCount], true = briefly show this
                                           // knob's value even without dragging
                                           // (e.g. just changed via automation)
@@ -852,6 +890,44 @@ inline void paintDropdownOpenList(cairo_t* cr, const Dropdown& dd, float value, 
     cairo_stroke(cr);
 }
 
+inline void paintStepSeq(cairo_t* cr, const StepSeq& seq, const float* values, int hoverColumn, bool dragging)
+{
+    const int stepCount = (int)(values[seq.countParam] + 0.5f);
+
+    roundedRect(cr, seq.x, seq.y, seq.w, seq.h, 4.0);
+    setColor(cr, kBg, 0.55);
+    cairo_fill(cr);
+
+    // zero/center line - values are bipolar (-1..1), so bars grow up or
+    // down from here rather than from the bottom like a normal level meter
+    const double zeroY = seq.y + seq.h * 0.5;
+    setColor(cr, kTextDim, 0.5);
+    cairo_set_line_width(cr, 1.0);
+    cairo_move_to(cr, seq.x, zeroY);
+    cairo_line_to(cr, seq.x + seq.w, zeroY);
+    cairo_stroke(cr);
+
+    const double barGap = 2.0;
+    for (int i = 0; i < stepCount; ++i)
+    {
+        double ox, ow;
+        getStepSeqColumnRect(seq, stepCount, i, ox, ow);
+        const float v = values[seq.param0 + (uint32_t)i];
+        const double barH = (double)std::fabs(v) * (seq.h * 0.5);
+        const double barY = v >= 0.0f ? zeroY - barH : zeroY;
+        const bool hovered = i == hoverColumn;
+
+        setColor(cr, seq.accent, hovered ? (dragging ? 1.0 : 0.85) : 0.65);
+        cairo_rectangle(cr, ox + barGap * 0.5, barY, ow - barGap, barH > 0.0 ? barH : 0.5);
+        cairo_fill(cr);
+    }
+
+    setColor(cr, kPanelEdge, 0.8);
+    cairo_set_line_width(cr, 1.5);
+    roundedRect(cr, seq.x, seq.y, seq.w, seq.h, 4.0);
+    cairo_stroke(cr);
+}
+
 inline void paintButton(cairo_t* cr, const Button& b, bool hovered, bool enabled)
 {
     roundedRect(cr, b.x, b.y, b.w, b.h, 4.0);
@@ -921,12 +997,6 @@ inline void paint(cairo_t* cr, const Layout& L, const PaintState& state)
         drawText(cr, subtitle, L.width - 20.0 - ext.width, 24.0);
     }
 
-    setColor(cr, kPanelEdge, 0.6);
-    cairo_set_line_width(cr, 1.0);
-    cairo_move_to(cr, 16.0, 54.0);
-    cairo_line_to(cr, L.width - 16.0, 54.0);
-    cairo_stroke(cr);
-
     paintPresetBar(cr, L.presetBar, state);
 
     // panels
@@ -950,6 +1020,14 @@ inline void paint(cairo_t* cr, const Layout& L, const PaintState& state)
     // envelope graphs (read-only, drawn under the knobs)
     for (const EnvelopeGraph& eg : L.envelopeGraphs)
         paintEnvelopeGraph(cr, eg, state.values);
+
+    // step-sequencer grids
+    for (size_t i = 0; i < L.stepSeqs.size(); ++i)
+    {
+        const StepSeq& seq = L.stepSeqs[i];
+        const int hoverColumn = (int)i == state.hoverStepSeq ? state.hoverStepSeqColumn : -1;
+        paintStepSeq(cr, seq, state.values, hoverColumn, (int)i == state.dragStepSeq);
+    }
 
     // selectors
     for (size_t i = 0; i < L.selectors.size(); ++i)

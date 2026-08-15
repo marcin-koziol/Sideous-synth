@@ -20,8 +20,8 @@
 #define DISTRHO_PLUGIN_WANT_TIMEPOS     1
 
 #define DISTRHO_UI_USE_CAIRO             1
-#define DISTRHO_UI_DEFAULT_WIDTH         760
-#define DISTRHO_UI_DEFAULT_HEIGHT        1104
+#define DISTRHO_UI_DEFAULT_WIDTH         1300
+#define DISTRHO_UI_DEFAULT_HEIGHT        720
 // must match the height ui/UIPainter.hpp's buildLayout() actually lays out to
 // (verified via the offline PNG renderer) - keep these two in sync by hand.
 

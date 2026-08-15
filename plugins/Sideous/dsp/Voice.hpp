@@ -44,14 +44,26 @@ struct VoiceParams
     float filterAttack = 0.005f, filterDecay = 0.2f, filterSustain = 0.0f, filterRelease = 0.2f;
     float filterCurve = 0.35f;      // 0..1, 0 = linear, 1 = analog-style
 
-    LfoWaveform lfoWaveform = LfoWaveform::Sine;
+    // step-sequencer values the LFO holds through each block of its cycle
+    // (no interpolation between steps); filled either by a one-click shape
+    // preset (see LfoStepPreset/fillLfoStepPreset in LFO.hpp) or by hand.
+    // Defaults mirror Params.hpp's default (a full 16-point sine cycle) so
+    // this struct's own construction matches the declared parameter defaults,
+    // same as every other field here.
+    float lfoSteps[kLfoMaxSteps] = {
+        0.0000f,  0.3827f,  0.7071f,  0.9239f,  1.0000f,  0.9239f,  0.7071f,  0.3827f,
+        0.0000f, -0.3827f, -0.7071f, -0.9239f, -1.0000f, -0.9239f, -0.7071f, -0.3827f };
+    int lfoStepCount = 16;
     LfoDestination lfoDestination = LfoDestination::Pitch;
     float lfoAmount = 0.0f;         // 0..1; LFO frequency is set separately
                                      // per-block from tempo, see setLfoFrequency()
 
     // independent second LFO - same shape as the first, so e.g. LFO1 can
     // target Pulse Width while LFO2 handles vibrato (Pitch) at the same time
-    LfoWaveform lfo2Waveform = LfoWaveform::Sine;
+    float lfo2Steps[kLfoMaxSteps] = {
+        0.0000f,  0.3827f,  0.7071f,  0.9239f,  1.0000f,  0.9239f,  0.7071f,  0.3827f,
+        0.0000f, -0.3827f, -0.7071f, -0.9239f, -1.0000f, -0.9239f, -0.7071f, -0.3827f };
+    int lfo2StepCount = 16;
     LfoDestination lfo2Destination = LfoDestination::Cutoff;
     float lfo2Amount = 0.0f;
 
@@ -209,11 +221,11 @@ public:
         fBaseCutoff = p.filterCutoff;
         fEnvAmount = p.filterEnvAmount;
 
-        fLfo.setWaveform(p.lfoWaveform);
+        fLfo.setSteps(p.lfoSteps, p.lfoStepCount);
         fLfoDestination = p.lfoDestination;
         fLfoAmount = p.lfoAmount;
 
-        fLfo2.setWaveform(p.lfo2Waveform);
+        fLfo2.setSteps(p.lfo2Steps, p.lfo2StepCount);
         fLfo2Destination = p.lfo2Destination;
         fLfo2Amount = p.lfo2Amount;
 
