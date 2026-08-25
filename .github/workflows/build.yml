@@ -40,6 +40,14 @@ on:
   pull_request:
     branches: ['*']
 
+# GITHUB_TOKEN defaults to read-only on this repo, which makes the release
+# step (softprops/action-gh-release, triggered on a "v*" tag push) fail with
+# a 403 - it needs write access to create the release. Explicit here rather
+# than flipping the repo-wide default so the extra permission stays scoped
+# to this workflow.
+permissions:
+  contents: write
+
 env:
   NAME: sideous
 
