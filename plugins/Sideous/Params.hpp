@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace sideous {
@@ -183,6 +185,37 @@ inline const ParamInfo& getParamInfo(uint32_t index) noexcept
         { "LFO2 Step 16",     "lfo2_step_16",        "",  -1.0f,     1.0f,    -0.3827f, ParamShape::Linear },
     };
     return table[index];
+}
+
+// Hosts automate a parameter's range linearly (VST3 normalisation, CLAP
+// plain values; DPF passes the logarithmic hint on to LV2 only), which crams
+// most of a 20 Hz..20 kHz or 1 ms..5 s range into the first few percent of an
+// automation lane. So every Logarithmic parameter is exposed to the host as
+// a 0..100 % position along its log curve (for a cutoff, ~10 % per octave).
+// The DSP, the UI and preset files keep working in real units: the plugin
+// and the UI convert only where values cross to and from the host.
+inline bool isHostPosition(uint32_t index) noexcept
+{
+    return index < kParamCount && getParamInfo(index).shape == ParamShape::Logarithmic;
+}
+
+inline float paramToHost(uint32_t index, float value) noexcept
+{
+    if (!isHostPosition(index))
+        return value;
+    const ParamInfo& info = getParamInfo(index);
+    const float lo = std::max(info.min, 1e-6f);
+    const float v = std::clamp(value, lo, info.max);
+    return 100.0f * std::log(v / lo) / std::log(info.max / lo);
+}
+
+inline float paramFromHost(uint32_t index, float value) noexcept
+{
+    if (!isHostPosition(index))
+        return value;
+    const ParamInfo& info = getParamInfo(index);
+    const float lo = std::max(info.min, 1e-6f);
+    return lo * std::pow(info.max / lo, std::clamp(value, 0.0f, 100.0f) * 0.01f);
 }
 
 } // namespace sideous

@@ -103,8 +103,16 @@ protected:
         parameter.ranges.max = info.max;
         parameter.ranges.def = info.def;
 
-        if (info.shape == ParamShape::Logarithmic)
-            parameter.hints |= kParameterIsLogarithmic;
+        // log-curved parameters reach the host as a 0..100 % position (see
+        // paramToHost() in Params.hpp), so its automation sweeps them evenly
+        if (isHostPosition(index))
+        {
+            parameter.unit = "%";
+            parameter.ranges.min = 0.0f;
+            parameter.ranges.max = 100.0f;
+            parameter.ranges.def = paramToHost(index, info.def);
+        }
+
 
         switch (index)
         {
@@ -306,6 +314,12 @@ protected:
 
     float getParameterValue(uint32_t index) const override
     {
+        return paramToHost(index, getEngineeringValue(index));
+    }
+
+    // a parameter in real units (Hz, s, ...), as the DSP sees it
+    float getEngineeringValue(uint32_t index) const
+    {
         if (index >= kParamLfoStep1 && index <= kParamLfoStep16)
             return fParams.lfoSteps[index - kParamLfoStep1];
         if (index >= kParamLfo2Step1 && index <= kParamLfo2Step16)
@@ -364,6 +378,8 @@ protected:
 
     void setParameterValue(uint32_t index, float value) override
     {
+        value = paramFromHost(index, value); // host position -> real units (Params.hpp)
+
         if (index >= kParamLfoStep1 && index <= kParamLfoStep16)
         {
             fParams.lfoSteps[index - kParamLfoStep1] = value;
